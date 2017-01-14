@@ -4,42 +4,74 @@ set -eu
 usage() {
   echo >&2 "syntax:
 updateHashes --all
+updateHashes --missing
 updateHashes <depName> [<depName> ...]"
   exit 1
 }
 
-manifestsFile='./manifests.nix'
-hashesFolder='./hashes'
+unwrapString() {
+  x="${3#$1}"
+  echo "${x%$2}"
+}
+
+readSpec() {
+  unwrapString \" \" $(nix-instantiate --eval -E 'with (import '"$specsFile"')."'"$1"'"; '"$2")
+}
+
+baseDir=$(dirname "$0")
+
+specsFile="$baseDir/specs.nix"
+hashesFolder="$baseDir/hashes"
 
 if (( $# == 0 )); then
   echo >&2 "No arguments provided."
   usage
 fi
 
-if [[ $1 == "--all" ]]; then
+case "$1" in
+  --all)
 
-  if (( $# > 1 )); then
-    echo >&2 "Unexpected arguments following --all."
-    usage
-  fi
+    if (( $# > 1 )); then
+      echo >&2 "Unexpected arguments following --all."
+      usage
+    fi
 
-  # get an array of the attribute names from the dependencies file.
-  read -r -a depNames <<< "$(nix-instantiate --eval -E "builtins.attrNames (import $manifestsFile)")"
+    # get an array of the attribute names from the specs file.
+    read -r -a depNames <<< "$(unwrapString '[ ' ' ]' "$(nix-instantiate --eval -E 'builtins.attrNames (import '"$specsFile"')')")"
 
-  depsToHash=()
-  # skip the [ and ] that wrap lists from nix-instantiate.
-  for depName in ${depNames[@]:1:(${#depNames[@]}-2)}; do
-    # strip double-quotes
-    depName="${depName%\"}"
-    depName="${depName#\"}"
-
-    depsToHash+=($depName)
-  done
-
-else
+    depsToHash=()
+    for quotedDep in "${depNames[@]}"; do
+      depsToHash+=($(unwrapString \" \" $quotedDep))
+    done
+    ;;
   
-  depsToHash=("$@")
+  --missing)
 
+    if (( $# > 1 )); then
+      echo >&2 "Unexpected arguments following --missing."
+      usage
+    fi
+
+    # get an array of the attribute names from the specs file.
+    read -r -a depNames <<< "$(unwrapString '[ ' ' ]' "$(nix-instantiate --eval -E 'builtins.attrNames (import '"$specsFile"')')")"
+
+    depsToHash=()
+    for quotedDep in "${depNames[@]}"; do
+      dep=$(unwrapString \" \" $quotedDep)
+      if [ ! -f $hashesFolder/$dep ]; then
+        depsToHash+=($dep)
+      fi 
+    done
+    ;;
+
+  *)
+    depsToHash=("$@")
+    ;;
+esac
+
+if (( ${#depsToHash[@]} == 0 )); then
+  echo 'No dependencies to hash!'
+  exit 0
 fi
 
 echo 'Deps: '${depsToHash[@]}
@@ -47,17 +79,36 @@ echo 'Deps: '${depsToHash[@]}
 nixPrefetchScripts="$(nix-build --no-out-link -E '(import <nixpkgs> {}).nix-prefetch-scripts')"
 
 for dep in "${depsToHash[@]}"; do
+  echo
   echo 'Dependency: '$dep
 
-  githubArchiveUrl="$(nix-instantiate --eval -E 'with (import '"$manifestsFile"')."'"$dep"'"; "https://github.com/${owner}/${repo}/archive/${rev}.tar.gz"')"
+  depScheme="$(readSpec "$dep" scheme)"
 
-  # strip double-quotes
-  githubArchiveUrl="${githubArchiveUrl%\"}"
-  githubArchiveUrl="${githubArchiveUrl#\"}"
+  case "$depScheme" in
 
-  echo 'Archive URL: '$githubArchiveUrl
+    github)
+      githubArchiveUrl="$(readSpec "$dep" '"https://github.com/${owner}/${repo}/archive/${rev}.tar.gz"')"
 
-  hash="$($nixPrefetchScripts/bin/nix-prefetch-zip --hash-type sha256 "$githubArchiveUrl")"
+      echo 'Archive URL: '$githubArchiveUrl
+
+      hash="$($nixPrefetchScripts/bin/nix-prefetch-zip --hash-type sha256 "$githubArchiveUrl")"
+      ;;
+
+    hackage)
+      packageId="$(readSpec "$dep" packageId)"
+
+      echo 'Package ID: '$packageId
+
+      hash="$(nix-prefetch-url mirror://hackage/"$packageId".tar.gz)"
+      ;;
+
+    *)
+      echo >&2 'Unrecognized scheme: '$depScheme
+      continue
+      ;;
+
+  esac
+
   echo 'Hash: '$hash
 
   hashFile=$hashesFolder/$dep
