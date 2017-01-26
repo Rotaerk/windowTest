@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+set -eu
+
+usage() {
+  echo >&2 "syntax:
+updateHashes --all
+updateHashes --missing
+updateHashes <refName> [<refName> ...]"
+  exit 1
+}
+
+unwrapString() {
+  x="${3#$1}"
+  echo "${x%$2}"
+}
+
+readRef() {
+  unwrapString \" \" $(nix-instantiate --eval -E 'with (import '"$refsFile"')."'"$1"'"; '"$2")
+}
+
+baseDir=$(dirname "$0")
+
+refsFile="$baseDir/references.nix"
+hashesFolder="$baseDir/hashes"
+
+if (( $# == 0 )); then
+  echo >&2 "No arguments provided."
+  usage
+fi
+
+case "$1" in
+  --all)
+
+    if (( $# > 1 )); then
+      echo >&2 "Unexpected arguments following --all."
+      usage
+    fi
+
+    # get an array of the attribute names from the refs file.
+    read -r -a refNames <<< "$(unwrapString '[ ' ' ]' "$(nix-instantiate --eval -E 'builtins.attrNames (import '"$refsFile"')')")"
+
+    refsToHash=()
+    for quotedDep in "${refNames[@]}"; do
+      refsToHash+=($(unwrapString \" \" $quotedDep))
+    done
+    ;;
+  
+  --missing)
+
+    if (( $# > 1 )); then
+      echo >&2 "Unexpected arguments following --missing."
+      usage
+    fi
+
+    # get an array of the attribute names from the refs file.
+    read -r -a refNames <<< "$(unwrapString '[ ' ' ]' "$(nix-instantiate --eval -E 'builtins.attrNames (import '"$refsFile"')')")"
+
+    refsToHash=()
+    for quotedDep in "${refNames[@]}"; do
+      ref=$(unwrapString \" \" $quotedDep)
+      if [ ! -f $hashesFolder/$ref ]; then
+        refsToHash+=($ref)
+      fi 
+    done
+    ;;
+
+  *)
+    refsToHash=("$@")
+    ;;
+esac
+
+if (( ${#refsToHash[@]} == 0 )); then
+  echo 'No references to hash!'
+  exit 0
+fi
+
+echo 'References: '${refsToHash[@]}
+
+nixPrefetchScripts="$(nix-build --no-out-link -E '(import <nixpkgs> {}).nix-prefetch-scripts')"
+
+for ref in "${refsToHash[@]}"; do
+  echo
+  echo 'Reference: '$ref
+
+  refScheme="$(readRef "$ref" scheme)"
+
+  case "$refScheme" in
+
+    github)
+      githubArchiveUrl="$(readRef "$ref" '"https://github.com/${owner}/${repo}/archive/${rev}.tar.gz"')"
+
+      echo 'Archive URL: '$githubArchiveUrl
+
+      hash="$($nixPrefetchScripts/bin/nix-prefetch-zip --hash-type sha256 "$githubArchiveUrl")"
+      ;;
+
+    hackage)
+      packageId="$(readRef "$ref" packageId)"
+
+      echo 'Package ID: '$packageId
+
+      hash="$(nix-prefetch-url mirror://hackage/"$packageId".tar.gz)"
+      ;;
+
+    *)
+      echo >&2 'Unrecognized scheme: '$refScheme
+      continue
+      ;;
+
+  esac
+
+  echo 'Hash: '$hash
+
+  hashFile=$hashesFolder/$ref
+  echo -n $hash > $hashFile
+
+  echo 'Updated: '$hashFile
+
+done

@@ -21,14 +21,6 @@
     repo = "nixpkgs-channels";
     rev = "497e6d2f1d149f5fbe004e15fe8c384eed993943";
   };
-  /*
-  nixpkgs = {
-    scheme = "github";
-    owner = "ryantrinkle";
-    repo = "nixpkgs-channels";
-    rev = "09c3d04b0e53d65f60569fc01698decff3a657a3";
-  };
-  */
   reflex = {
     scheme = "github";
     owner = "reflex-frp";
