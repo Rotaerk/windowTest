@@ -1,0 +1,7 @@
+{
+  scheme = "github";
+  owner = "ryantrinkle";
+  repo = "timezone-series";
+  rev = "f8dece8c016db6476e2bb0d4f972769a76f6ff40";
+  sha256 = "0j2bxzi102ay4s0vc39vi9xlny7fgsjv379pibdcfzsd6k540517";
+}

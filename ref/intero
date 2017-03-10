@@ -1,0 +1,7 @@
+{
+  scheme = "github";
+  owner = "commercialhaskell";
+  repo = "intero";
+  rev = "5378bb637c76c48eca64ccda0c855f7557aecb60";
+  sha256 = "1vgmbs790l8z90bk8sib3xvli06p1nkrjnnvlnhsjzkkpxynf2nf";
+}
