@@ -5,33 +5,35 @@
 }:
 
 let
+  lib = import ./lib.nix { inherit pkgs; };
+  inherit (lib) compose composeAll;
   inherit (pkgs.lib) filterAttrs mapAttrs mapAttrsToList;
   refs =
-    mapAttrs
-      (fileName: fileType: import (refDir + "/${fileName}"))
-      (
-        filterAttrs
-          (fileName: fileType: fileType == "regular")
-          (builtins.readDir refDir)
-      );
+    composeAll [
+      (mapAttrs (fileName: fileType: import (refDir + "/${fileName}")))
+      (filterAttrs (fileName: fileType: fileType == "regular"))
+      builtins.readDir
+    ]
+      refDir;
 
 in rec {
   sources =
-    filterAttrs (refName: source: source != null) (
-      mapAttrs
+    compose
+      (filterAttrs (refName: source: source != null))
+      (mapAttrs
         (refName: ref:
           if ref.scheme == "github" then
             pkgs.fetchFromGitHub { inherit (ref) owner repo rev sha256; }
           else
             null
         )
-        refs
-    );
+      )
+      refs;
 
   relSourceDrvs =
     mapAttrs
       (refName: srcPath:
-        (subDir: import (srcPath + "/${subDir}"))
+        subDir: import (srcPath + "/${subDir}")
       )
       sources;
 
@@ -51,13 +53,20 @@ in rec {
 
     hackageNixs =
       let
-        hackageRefs = filterAttrs (refName: ref: ref.scheme == "hackage") refs;
+        hackageRefs =
+          compose
+            (mapAttrs
+              (refName: ref:
+                {
+                  packageId = "${ref.name}-${ref.version}";
+                  inherit (ref) sha256;
+                }
+              )
+            )
+            (filterAttrs (refName: ref: ref.scheme == "hackage"))
+            refs;
         drvsPath =
-          runCabal2Nix.forHackagePackages "hackageRefs" (
-            mapAttrsToList
-              (refName: ref: { inherit (ref) packageId sha256; })
-              hackageRefs
-          );
+          runCabal2Nix.forHackagePackages "hackageRefs" (builtins.attrValues hackageRefs);
       in
         mapAttrs (refName: ref: import "${drvsPath}/${ref.packageId}") hackageRefs;
   };
