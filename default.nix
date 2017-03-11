@@ -1,6 +1,6 @@
 let
   project = "windowTest";
-  inherit (import ./ref.nix {})
+  inherit (import ./refs.nix {})
     sources sourceDrvs c2nResultsWith;
   pkgs = import sources.nixpkgs {};
   inherit (pkgs.haskell.lib) overrideCabal disableHardening addPkgconfigDepend addBuildTool;
@@ -45,7 +45,6 @@ let
 
           ghcjs-dom =
             let pkg = self.callPackage hackageNixs.ghcjs-dom {};
-            # let pkg = self.callHackage "ghcjs-dom" "0.2.3.1" {};
             in
               overrideCabal pkg (drv: {
                 preConfigure = ''

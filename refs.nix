@@ -1,7 +1,7 @@
 {
   pkgs ? import <nixpkgs> {},
   baseDir ? ./.,
-  refDir ? baseDir + /ref
+  refDir ? baseDir + /refs
 }:
 
 let
