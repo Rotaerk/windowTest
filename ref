@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+set -eu
+
+invokedPath=$0
+refsDir="${PWD}/refs"
+
+usage () {
+  echo "$usageText"
+  exit 0
+}
+
+error () {
+  echo >&2 "$1"
+  exit 1
+}
+
+errorUsage () {
+  echo >&2 "$1"$'\n'"$usageText"
+  exit 1
+}
+
+setRefName () {
+  refName="$1"
+  if [ -z $refName ]; then
+    errorUsage "An empty reference name was specified."
+  fi
+  refFilePath="$refsDir/$refName"
+  if [ -f "$refFilePath" ]; then
+    error "A reference with the name '$refName' already exists."
+  fi
+}
+
+main() {
+  usageText="Usage: $invokedPath <flags> <command> [<command specific args>]
+
+Flags:
+--help - print this message
+--path <path> - specify the <path> where references are stored
+
+Commands:
+add - add a new reference
+"
+
+  while (( "$#" )); do
+
+    case "$1" in
+      --help) usage;;
+      --path)
+        shift;
+
+        if (( $# == 0 )); then
+          errorUsage 'No path specified.'
+        fi
+
+        refsDir="$1"
+        ;;
+
+      add) shift; add "$@"; return;;
+
+      *) errorUsage "Unrecognized argument: $1";;
+    esac
+
+    shift;
+
+  done
+
+  errorUsage 'No command provided.'
+}
+
+add() {
+  usageText="Usage: $invokedPath add <flags> <scheme> [<scheme specific args>]
+
+Flags:
+--help - print this message
+--name <name> - specify the <name> of the new reference
+
+Schemes:
+github - reference points to a revision in a github repo
+hackage - reference points to a package version on hackage
+"
+  while (( "$#" )); do
+
+    case "$1" in
+      --help) usage;;
+      --name)
+        shift;
+
+        if (( $# == 0 )); then
+          errorUsage 'No name specified.'
+        fi
+
+        setRefName "$1"
+        ;;
+
+      github) shift; addGithub "$@"; return;;
+      hackage) shift; addHackage "$@"; return;;
+
+      *) errorUsage "Unrecognized argument: $1";;
+    esac
+
+    shift;
+
+  done
+
+  errorUsage 'No scheme provided for add.'
+}
+
+addGithub() {
+  usageText="Usage: $invokedPath add github <flags> <owner> <repo> (commit <ID> | branch <name> | HEAD)
+
+Flags:
+--help - displays this message
+
+Arguments:
+<owner> - the name of the github profile that owns the repository
+<repo> - the name of the repository to reference
+commit <ID> - indicates that the reference should point to the commit with the specified ID.
+branch <name> - indicates that the reference should point to the current commit of the GitHub branch with the specified name.  Name can be HEAD.
+"
+
+  if [ "${1+x}" == "--help" ]; then
+    usage
+  fi
+
+  if (( $# < 3 )); then
+    errorUsage 'Not enough arguments provided.'
+  fi
+
+  local owner=$1
+  local repo=$2
+
+  shift 2
+
+  if [ -z ${refName+x} ]; then
+    setRefName "$repo"
+  fi
+
+  local githubUrl="https://github.com/$owner/$repo"
+
+  case "$1" in
+    commit)
+      shift;
+
+      if (( $# == 0 )); then
+        errorUsage 'No commit ID specified.'
+      fi
+
+      local commitId="$1"
+      ;;
+
+    branch)
+      shift;
+
+      if (( $# == 0 )); then
+        errorUsage 'No branch name specified.'
+      fi
+
+      local branchName="$1"
+
+      local commitIds=( $(git ls-remote "$githubUrl" "$branchName" | sed -n 's/^\(\S*\).*$/\1/p') )
+
+      case ${#commitIds[*]} in
+        0) error "'$branchName' branch not found in GitHub repository.";;
+        1) local commitId="${commitIds[0]}";;
+        *) error "Unexpected: More than one '$branchName' branch found in GitHub repository.";;
+      esac
+      ;;
+
+    *) errorUsage "Unrecognized argument: $1";;
+  esac
+
+  nixPrefetchScripts="$(nix-build --no-out-link -E '(import <nixpkgs> {}).nix-prefetch-scripts')"
+
+  local sha256="$($nixPrefetchScripts/bin/nix-prefetch-zip --hash-type sha256 "$githubUrl/archive/$commitId.tar.gz")"
+
+  if [ -z $sha256 ]; then
+    error "Failed to obtain a hash for commit $commitId from GitHub."
+  fi
+
+  cat <<EOF >> $refFilePath
+{
+  scheme = "github";
+  owner = "$owner";
+  repo = "$repo";
+  rev = "$commitId";
+  sha256 = "$sha256";
+}
+EOF
+
+  echo "Added a reference to $githubUrl commit $commitId, with name '$refName'."
+}
+
+addHackage() {
+  usageText="Usage: $invokedPath add hackage <flags> <name> <version>
+
+Flags:
+--help - displays this message
+"
+
+  if [ "${1+x}" == "--help" ]; then
+    usage
+  fi
+
+  if (( $# < 2 )); then
+    errorUsage 'Not enough arguments provided.'
+  fi
+
+  local packageName=$1
+  local packageVersion=$2
+  local packageId="$packageName-$packageVersion"
+
+  if [ -z ${refName+x} ]; then
+    setRefName "$packageName"
+  fi
+
+  local sha256="$(nix-prefetch-url mirror://hackage/"$packageId".tar.gz)"
+
+  if [ -z $sha256 ]; then
+    error "Failed to obtain a hash for $packageId from hackage."
+  fi
+
+  cat <<EOF >> $refFilePath
+{
+  scheme = "hackage";
+  name = "$packageName";
+  version = "$packageVersion";
+  sha256 = "$sha256";
+}
+EOF
+
+  echo "Added a reference to hackage package $packageId, with name '$refName'."
+}
+
+main "$@"
