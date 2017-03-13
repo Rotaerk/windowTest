@@ -4,32 +4,6 @@ set -eu
 invokedPath=$0
 refsDir="${PWD}/refs"
 
-usage () {
-  echo "$usageText"
-  exit 0
-}
-
-error () {
-  echo >&2 "$1"
-  exit 1
-}
-
-errorUsage () {
-  echo >&2 "$1"$'\n'"$usageText"
-  exit 1
-}
-
-setRefName () {
-  refName="$1"
-  if [ -z $refName ]; then
-    errorUsage "An empty reference name was specified."
-  fi
-  refFilePath="$refsDir/$refName"
-  if [ -f "$refFilePath" ]; then
-    error "A reference with the name '$refName' already exists."
-  fi
-}
-
 main() {
   usageText="Usage: $invokedPath <flags> <command> [<command specific args>]
 
@@ -39,6 +13,7 @@ Flags:
 
 Commands:
 add - add a new reference
+modify - modify an existing reference
 "
 
   while (( "$#" )); do
@@ -56,6 +31,7 @@ add - add a new reference
         ;;
 
       add) shift; add "$@"; return;;
+      modify) shift; modify "$@"; return;;
 
       *) errorUsage "Unrecognized argument: $1";;
     esac
@@ -68,16 +44,23 @@ add - add a new reference
 }
 
 add() {
-  usageText="Usage: $invokedPath add <flags> <scheme> [<scheme specific args>]
+  usageText="Usage: $invokedPath add <flags> <scheme> [<scheme-specific args>]
 
 Flags:
 --help - print this message
---name <name> - specify the <name> of the new reference
+--name <name> - specify the <name> of the new reference; the default name is determined in a scheme-specific manner.
+--force | -f - if a reference already exists with the new reference's name, overwrite it
+
+Arguments:
+<scheme> - the scheme of the reference to create.  Valid options are below.
+<scheme-specific args> - the remaining arguments depend on the reference's scheme; omit to see more details
 
 Schemes:
 github - reference points to a revision in a github repo
 hackage - reference points to a package version on hackage
 "
+  shouldGuardExistingRef=true
+
   while (( "$#" )); do
 
     case "$1" in
@@ -91,6 +74,7 @@ hackage - reference points to a package version on hackage
 
         setRefName "$1"
         ;;
+      --force|-f) shouldGuardExistingRef=false;;
 
       github) shift; addGithub "$@"; return;;
       hackage) shift; addHackage "$@"; return;;
@@ -106,7 +90,7 @@ hackage - reference points to a package version on hackage
 }
 
 addGithub() {
-  usageText="Usage: $invokedPath add github <flags> <owner> <repo> (commit <ID> | branch <name> | HEAD)
+  usageText="Usage: $invokedPath add github <flags> <owner> <repo> (commit <ID> | branch <name>)
 
 Flags:
 --help - displays this message
@@ -126,14 +110,16 @@ branch <name> - indicates that the reference should point to the current commit 
     errorUsage 'Not enough arguments provided.'
   fi
 
-  local owner=$1
-  local repo=$2
+  local owner="$1"
+  local repo="$2"
 
   shift 2
 
   if [ -z ${refName+x} ]; then
     setRefName "$repo"
   fi
+
+  guardExistingRef
 
   local githubUrl="https://github.com/$owner/$repo"
 
@@ -177,7 +163,9 @@ branch <name> - indicates that the reference should point to the current commit 
     error "Failed to obtain a hash for commit $commitId from GitHub."
   fi
 
-  cat <<EOF >> $refFilePath
+  ensureRefsDirExists
+
+  cat <<EOF > $refFilePath
 {
   scheme = "github";
   owner = "$owner";
@@ -187,7 +175,7 @@ branch <name> - indicates that the reference should point to the current commit 
 }
 EOF
 
-  echo "Added a reference to $githubUrl commit $commitId, with name '$refName'."
+  echo "Reference file '$refFilePath' now refers to $githubUrl commit $commitId."
 }
 
 addHackage() {
@@ -195,6 +183,10 @@ addHackage() {
 
 Flags:
 --help - displays this message
+
+Arguments:
+<name> - name of the Hackage package to reference
+<version> - version of the Hackage package to reference
 "
 
   if [ "${1+x}" == "--help" ]; then
@@ -205,13 +197,15 @@ Flags:
     errorUsage 'Not enough arguments provided.'
   fi
 
-  local packageName=$1
-  local packageVersion=$2
+  local packageName="$1"
+  local packageVersion="$2"
   local packageId="$packageName-$packageVersion"
 
   if [ -z ${refName+x} ]; then
     setRefName "$packageName"
   fi
+
+  guardExistingRef
 
   local sha256="$(nix-prefetch-url mirror://hackage/"$packageId".tar.gz)"
 
@@ -219,7 +213,9 @@ Flags:
     error "Failed to obtain a hash for $packageId from hackage."
   fi
 
-  cat <<EOF >> $refFilePath
+  ensureRefsDirExists
+
+  cat <<EOF > $refFilePath
 {
   scheme = "hackage";
   name = "$packageName";
@@ -228,7 +224,140 @@ Flags:
 }
 EOF
 
-  echo "Added a reference to hackage package $packageId, with name '$refName'."
+  echo "Reference file '$refFilePath' now refers to the hackage package $packageId."
+}
+
+modify() {
+  usageText="Usage: $invokedPath modify <flags> <refname> [<scheme-specific args>]
+
+Flags:
+--help - displays this message
+
+Arguments:
+<refname> - name of the reference to modify
+<scheme-specific args> - the remaining arguments depend on the reference's scheme; omit to see more details
+"
+
+  while (( "$#" )); do
+
+    case "$1" in
+      --help) usage;;
+      *)
+        setRefName "$1"
+        shift;
+
+        local refScheme="$(readRef "$refName" scheme)"
+
+        case "$refScheme" in
+          github) modifyGithub "$@";;
+          hackage) modifyHackage "$@";;
+          *) error "Reference has an unsupported scheme: $refScheme.";;
+        esac
+
+        return
+      ;;
+    esac
+
+    shift;
+
+  done
+
+  errorUsage 'No refname specified'
+}
+
+modifyGithub() {
+  usageText="Usage: $invokedPath modify $refName (commit <ID> | branch <name>)
+
+Arguments:
+commit <ID> - indicates that the reference should be modified to point to the commit with the specified ID.
+branch <name> - indicates that the reference should be modified to point to the current commit of the GitHub branch with the specified name.  Name can be HEAD.
+"
+  if (( $# < 1 )); then
+    errorUsage 'Not enough arguments provided.'
+  fi
+
+  owner="$(readRef "$refName" owner)"
+  repo="$(readRef "$refName" repo)"
+
+  case "$1" in
+    commit)
+      shift
+
+      if (( $# == 0 )); then
+        errorUsage 'No commit ID specified.'
+      fi
+
+      add -f github "$owner" "$repo" commit "$1"
+      ;;
+    branch)
+      shift
+
+      if (( $# == 0 )); then
+        errorUsage 'No branch name specified.'
+      fi
+
+      add -f github "$owner" "$repo" branch "$1"
+      ;;
+    *) errorUsage "Unrecognized argument: $1";;
+  esac
+}
+
+modifyHackage() {
+  usageText="Usage: $invokedPath modify $refName <version>
+
+Arguments:
+<version> - new version of the Hackage package to reference
+"
+
+  if (( $# < 1 )); then
+    errorUsage 'Not enough arguments provided.'
+  fi
+
+  add -f hackage "$(readRef "$refName" name)" "$1"
+}
+
+usage () {
+  echo "$usageText"
+  exit 0
+}
+
+error () {
+  echo >&2 "$1"
+  exit 1
+}
+
+errorUsage () {
+  echo >&2 "$1"$'\n'"$usageText"
+  exit 1
+}
+
+setRefName () {
+  refName="$1"
+  if [ -z "$refName" ]; then
+    errorUsage "An empty reference name was specified."
+  fi
+  refFilePath="$refsDir/$refName"
+}
+
+guardExistingRef() {
+  if $shouldGuardExistingRef && [ -f "$refFilePath" ]; then
+    error "A reference with the name '$refName' already exists."
+  fi
+}
+
+ensureRefsDirExists() {
+  if [ ! -d "$refsDir" ]; then
+    mkdir -p "$refsDir"
+  fi
+}
+
+unwrapString() {
+  x="${3#$1}"
+  echo "${x%$2}"
+}
+
+readRef() {
+  unwrapString \" \" $(nix-instantiate --eval -E 'with (import '"$refFilePath"'); '"$2")
 }
 
 main "$@"
