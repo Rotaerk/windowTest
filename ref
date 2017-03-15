@@ -3,17 +3,20 @@ set -eu
 
 invokedPath=$0
 refsDir="${PWD}/refs"
+refSrcsSubdir="src"
 
 main() {
   usageText="Usage: $invokedPath <flags> <command> [<command specific args>]
 
 Flags:
---help - print this message
+--help - display this message
 --path <path> - specify the <path> where references are stored
 
 Commands:
 add - add a new reference
 modify - modify an existing reference
+update - update an existing reference to the latest version
+src - set of commands manipulating local copy of source code for a reference
 "
 
   while (( "$#" )); do
@@ -32,6 +35,8 @@ modify - modify an existing reference
 
       add) shift; add "$@"; return;;
       modify) shift; modify "$@"; return;;
+      update) shift; update "$@"; return;;
+      src) shift; src "$@"; return;;
 
       *) errorUsage "Unrecognized argument: $1";;
     esac
@@ -47,7 +52,7 @@ add() {
   usageText="Usage: $invokedPath add <flags> <scheme> [<scheme-specific args>]
 
 Flags:
---help - print this message
+--help - display this message
 --name <name> - specify the <name> of the new reference; the default name is determined in a scheme-specific manner.
 --force | -f - if a reference already exists with the new reference's name, overwrite it
 
@@ -93,7 +98,7 @@ addGithub() {
   usageText="Usage: $invokedPath add github <flags> <owner> <repo> (commit <ID> | branch <name>)
 
 Flags:
---help - displays this message
+--help - display this message
 
 Arguments:
 <owner> - the name of the github profile that owns the repository
@@ -163,7 +168,7 @@ branch <name> - indicates that the reference should point to the current commit 
     error "Failed to obtain a hash for commit $commitId from GitHub."
   fi
 
-  ensureRefsDirExists
+  ensureDirExists "$refsDir"
 
   cat <<EOF > $refFilePath
 {
@@ -182,7 +187,7 @@ addHackage() {
   usageText="Usage: $invokedPath add hackage <flags> <name> <version>
 
 Flags:
---help - displays this message
+--help - display this message
 
 Arguments:
 <name> - name of the Hackage package to reference
@@ -213,7 +218,7 @@ Arguments:
     error "Failed to obtain a hash for $packageId from hackage."
   fi
 
-  ensureRefsDirExists
+  ensureDirExists "$refsDir"
 
   cat <<EOF > $refFilePath
 {
@@ -231,7 +236,7 @@ modify() {
   usageText="Usage: $invokedPath modify <flags> <refname> [<scheme-specific args>]
 
 Flags:
---help - displays this message
+--help - display this message
 
 Arguments:
 <refname> - name of the reference to modify
@@ -251,7 +256,7 @@ Arguments:
         case "$refScheme" in
           github) modifyGithub "$@";;
           hackage) modifyHackage "$@";;
-          *) error "Reference has an unsupported scheme: $refScheme.";;
+          *) error "The modify command does not support this reference's scheme: $refScheme.";;
         esac
 
         return
@@ -316,6 +321,175 @@ Arguments:
   add -f hackage "$(readRef "$refName" name)" "$1"
 }
 
+update() {
+  usageText="Usage: $invokedPath update [<flags>] <refname> [<scheme-specific args>]
+
+Flags:
+--help - display this message
+
+Arguments:
+<refname> - name of the reference to update
+<scheme-specific args> - the remaining arguments depend on the reference's scheme; omit to see more details
+"
+
+  while (( "$#" )); do
+
+    case "$1" in
+      --help) usage;;
+      *)
+        setRefName "$1"
+        shift;
+
+        local refScheme="$(readRef "$refName" scheme)"
+
+        case "$refScheme" in
+          github) updateGithub "$@";;
+          *) error "The update command does not support this reference's scheme: $refScheme.";;
+        esac
+
+        return
+      ;;
+    esac
+
+    shift;
+
+  done
+
+  errorUsage 'No refname specified'
+  
+}
+
+updateGithub() {
+  usageText="Usage: $invokedPath update $refName [<flags>] [<branch>]
+
+Flags:
+--help - display this message
+
+Arguments:
+<branch> - the branch to update the reference to the latest revision of. If omitted, get the list of descendant branches.  If only one exists, update to that branch.  Otherwise, display a list of the descendant branches.
+"
+  while (( "$#" )); do
+
+    case "$1" in
+      --help) usage;;
+      --*) errorUsage "Unrecognized flag: $1";;
+
+      *) local branchName="$1"; break;;
+    esac
+
+    shift
+
+  done
+
+  if [ -z ${branchName+x} ]; then
+
+    if dirIsEmpty "$refSrcDir"; then
+      srcGithubClone
+    fi
+
+    gitCmd() { git -C "$refSrcDir" "$@"; }
+
+    gitCmd fetch
+
+    local descendantsPlusHead=$(gitCmd branch -r --contains "$(readRef "$refName" rev)" | sed -n s_origin/__gp)
+    local descendants=$(echo "$descendantsPlusHead" | grep -v 'HEAD ->')
+    local numDescendants=$(echo "$descendants" | wc -l)
+
+    case "$numDescendants" in
+      1)
+        modifyGithub branch "$descendants"
+        echo "Updated to the latest revision of the only descendant branch, '$descendants'."
+        ;;
+      0) echo "Found no descendants of referenced revision.";;
+      *) 
+        echo "Found more than one descendant of referenced revision:"
+        echo "$descendantsPlusHead"
+        ;;
+    esac
+
+  else
+
+    modifyGithub branch "$branchName"
+    echo "Updated to the latest revision of the '$branchName' branch."
+
+  fi
+}
+
+src() {
+  usageText="Usage: $invokedPath src [<flags>] <refname> [<scheme-specific args>]
+
+Flags:
+--help - display this message
+
+Arguments:
+<refname> - name of the reference for which the local source will be manipulated
+<scheme-specific args> - the remaining arguments depend on the reference's scheme; omit to see more details
+"
+
+  while (( "$#" )); do
+
+    case "$1" in
+      --help) usage;;
+      *)
+        setRefName "$1"
+        shift;
+
+        local refScheme="$(readRef "$refName" scheme)"
+
+        case "$refScheme" in
+          github) srcGithub "$@";;
+          *) error "The src command does not support this reference's scheme: $refScheme.";;
+        esac
+
+        return
+      ;;
+    esac
+
+    shift;
+
+  done
+
+  errorUsage 'No refname specified'
+}
+
+srcGithub() {
+  usageText="Usage: $invokedPath src $refName [<flags>] <command> [<command-specific args>]
+
+Flags:
+--help - display this message
+
+Commands:
+clone - clones the github repository locally
+"
+
+  while (( "$#" )); do
+
+    case "$1" in
+      --help) usage;;
+
+      clone) shift; srcGithubClone "$@"; return;;
+
+      *) errorUsage "Unrecognized argument: $1";;
+    esac
+
+    shift;
+
+  done
+
+  errorUsage 'No command provided.'
+
+}
+
+srcGithubClone() {
+  ensureDirExists "$refsDir/$refSrcsSubdir"
+
+  if dirHasFiles "$refSrcDir"; then
+    error "The reference source directory, '$refSrcDir', already contains files.  Aborting."
+  fi
+
+  git clone "$(readRef "$refName" '"https://github.com/${owner}/${repo}"')" "$refSrcDir"
+}
+
 usage () {
   echo "$usageText"
   exit 0
@@ -337,6 +511,7 @@ setRefName () {
     errorUsage "An empty reference name was specified."
   fi
   refFilePath="$refsDir/$refName"
+  refSrcDir="$refsDir/$refSrcsSubdir/$refName"
 }
 
 guardExistingRef() {
@@ -345,10 +520,24 @@ guardExistingRef() {
   fi
 }
 
-ensureRefsDirExists() {
-  if [ ! -d "$refsDir" ]; then
-    mkdir -p "$refsDir"
+ensureDirExists() {
+  if [ ! -d "$1" ]; then
+    mkdir -p "$1"
   fi
+}
+
+dirHasFiles() {
+  local existingFiles=$(shopt -s nullglob dotglob; echo "$1"/*)
+
+  if (( ${#existingFiles} )); then
+    return 0
+  else
+    return 1
+  fi
+}
+
+dirIsEmpty() {
+  return $(! dirHasFiles "$1")
 }
 
 unwrapString() {
