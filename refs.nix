@@ -40,7 +40,7 @@ in rec {
   sourceDrvs = mapAttrs (refName: subdirDrv: subdirDrv "") relSourceDrvs;
 
   c2nResultsWith = runCabal2Nix: rec {
-    relSourceNixs =
+    relSourceDrvs =
       mapAttrs
         (refName: srcPath:
           (resultNamePrefix: subDir:
@@ -49,9 +49,9 @@ in rec {
         )
         sources;
 
-    sourceNixs = mapAttrs (refName: subdirDrv: subdirDrv refName "") relSourceNixs;
+    sourceDrvs = mapAttrs (refName: subdirDrv: subdirDrv refName "") relSourceDrvs;
 
-    hackageNixs =
+    hackageDrvs =
       let
         hackageRefs =
           compose
