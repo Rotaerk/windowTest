@@ -472,7 +472,7 @@ unwrapString() {
 }
 
 readRef() {
-  unwrapString \" \" $(nix-instantiate --eval -E 'with (import '"$refFilePath"'); '"$1")
+  unwrapString \" \" $(nix-instantiate --eval -E 'with (import '"$(readlink -e "$refFilePath")"'); '"$1")
 }
 
 main "$@"
