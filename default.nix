@@ -1,9 +1,11 @@
+{ refsWithLocalSource ? [] }:
+
 let
   project = "windowTest";
-  inherit (import ./refs.nix {})
+  inherit (import ./refs.nix { inherit refsWithLocalSource; })
     sources sourceDrvs c2nResultsWith relSourceOverrides sourceOverrides;
   pkgs = import sources.nixpkgs {};
-  inherit (pkgs.haskell.lib) overrideCabal disableHardening addPkgconfigDepend addBuildTool;
+  inherit (pkgs.haskell.lib) overrideCabal;
   haskellPackages =
     pkgs.haskell.packages.ghc801.override {
       overrides = self: super:

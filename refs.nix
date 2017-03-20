@@ -1,7 +1,8 @@
 {
   pkgs ? import <nixpkgs> {},
   baseDir ? ./.,
-  refDir ? baseDir + /refs
+  refsDir ? baseDir + /refs,
+  refsWithLocalSource ? []
 }:
 
 let
@@ -10,11 +11,11 @@ let
   inherit (pkgs.haskell.lib) overrideCabal;
   refs =
     composeAll [
-      (mapAttrs (fileName: fileType: import (refDir + "/${fileName}")))
+      (mapAttrs (fileName: fileType: import (refsDir + "/${fileName}")))
       (filterAttrs (fileName: fileType: fileType == "regular"))
       builtins.readDir
     ]
-      refDir;
+      refsDir;
 
 in rec {
   sources =
@@ -22,10 +23,18 @@ in rec {
       (filterAttrs (refName: source: source != null))
       (mapAttrs
         (refName: ref:
-          if ref.scheme == "github" then
-            pkgs.fetchFromGitHub { inherit (ref) owner repo rev sha256; }
-          else
-            null
+          if builtins.elem refName refsWithLocalSource then (
+            if ref.scheme == "github" then
+              refsDir + "/${refName}.git"
+            else
+              null
+          )
+          else (
+            if ref.scheme == "github" then
+              pkgs.fetchFromGitHub { inherit (ref) owner repo rev sha256; }
+            else
+              null
+          )
         )
       )
       refs;
