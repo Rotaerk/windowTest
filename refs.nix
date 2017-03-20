@@ -5,9 +5,9 @@
 }:
 
 let
-  lib = import ./lib.nix { inherit pkgs; };
-  inherit (lib) compose composeAll;
+  inherit (import ./lib.nix { inherit pkgs; }) compose composeAll;
   inherit (pkgs.lib) filterAttrs mapAttrs mapAttrsToList;
+  inherit (pkgs.haskell.lib) overrideCabal;
   refs =
     composeAll [
       (mapAttrs (fileName: fileType: import (refDir + "/${fileName}")))
@@ -29,6 +29,26 @@ in rec {
         )
       )
       refs;
+
+  relSourceOverrides =
+    mapAttrs
+      (refName: srcPath:
+        (subDir: version: pkg:
+          overrideCabal pkg
+            (drv:
+            {
+              src = srcPath + "/${subDir}";
+              inherit version;
+              sha256 = null;
+              revision = null;
+              editedCabalFile = null;
+            }
+            )
+        )
+      )
+      sources;
+
+  sourceOverrides = mapAttrs (refName: subdirOverride: subdirOverride "") relSourceOverrides;
 
   relSourceDrvs =
     mapAttrs

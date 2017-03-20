@@ -1,7 +1,7 @@
 let
   project = "windowTest";
   inherit (import ./refs.nix {})
-    sources sourceDrvs c2nResultsWith;
+    sources sourceDrvs c2nResultsWith relSourceOverrides sourceOverrides;
   pkgs = import sources.nixpkgs {};
   inherit (pkgs.haskell.lib) overrideCabal disableHardening addPkgconfigDepend addBuildTool;
   haskellPackages =
@@ -14,30 +14,11 @@ let
 
           gtk2hs-buildtools-local = self.callPackage (c2n.relSourceDrvs.gtk2hs "gtk2hs-buildtools-local" "tools") {}; 
 
-          glib =
-            let pkg = self.callPackage (c2n.relSourceDrvs.gtk2hs "glib" "glib") { inherit (pkgs) glib; gtk2hs-buildtools = self.gtk2hs-buildtools-local; };
-            in
-              disableHardening (addPkgconfigDepend (addBuildTool pkg self.gtk2hs-buildtools-local) pkgs.glib) ["fortify"];
-
-          gio =
-            let pkg = self.callPackage (c2n.relSourceDrvs.gtk2hs "gio" "gio") { system-glib = pkgs.glib; gtk2hs-buildtools = self.gtk2hs-buildtools-local; };
-            in
-              disableHardening (addPkgconfigDepend (addBuildTool pkg self.gtk2hs-buildtools-local) pkgs.glib) ["fortify"];
-
-          gtk3 =
-            let pkg = self.callPackage (c2n.relSourceDrvs.gtk2hs "gtk3" "gtk") { inherit (pkgs) gtk3; gtk2hs-buildtools = self.gtk2hs-buildtools-local; };
-            in
-              disableHardening pkg ["fortify"];
-
-          cairo =
-            let pkg = self.callPackage (c2n.relSourceDrvs.gtk2hs "cairo" "cairo") { inherit (pkgs) cairo; gtk2hs-buildtools = self.gtk2hs-buildtools-local; };
-            in
-              addBuildTool pkg self.gtk2hs-buildtools-local;
-
-          pango =
-            let pkg = self.callPackage (c2n.relSourceDrvs.gtk2hs "pango" "pango") { inherit (pkgs) pango; gtk2hs-buildtools = self.gtk2hs-buildtools-local; };
-            in
-              disableHardening (addBuildTool pkg self.gtk2hs-buildtools-local) ["fortify"];
+          glib = relSourceOverrides.gtk2hs "glib" "0.13.2.2" super.glib;
+          gio = relSourceOverrides.gtk2hs "gio" "0.13.1.1" super.gio;
+          gtk3 = relSourceOverrides.gtk2hs "gtk" "0.14.2" super.gtk3;
+          cairo = relSourceOverrides.gtk2hs "cairo" "0.13.1.1" super.cairo;
+          pango = relSourceOverrides.gtk2hs "pango" "0.13.1.1" super.pango;
 
           webkitgtk3 = self.callPackage c2n.sourceDrvs.webkitgtk3 { webkit = pkgs.webkitgtk24x; gtk2hs-buildtools = self.gtk2hs-buildtools-local; };
 
@@ -52,14 +33,7 @@ let
                 '';
               });
 
-          intero =
-            let pkg = self.callPackage c2n.sourceDrvs.intero {};
-            in
-              overrideCabal pkg (drv: {
-                postPatch = (drv.postPatch or "") + ''
-                  substituteInPlace src/test/Main.hs --replace "\"intero\"" "\"$PWD/dist/build/intero/intero\""
-                '';
-              });
+          intero = sourceOverrides.intero "0.1.18" super.intero;
 
           reflex = self.callPackage sourceDrvs.reflex {};
 
