@@ -59,17 +59,17 @@ in rec {
 
   sourceOverrides = mapAttrs (refName: subdirOverride: subdirOverride "") relSourceOverrides;
 
-  relSourceDrvs =
+  relSourceImports =
     mapAttrs
       (refName: srcPath:
         subDir: import (srcPath + "/${subDir}")
       )
       sources;
 
-  sourceDrvs = mapAttrs (refName: subdirDrv: subdirDrv "") relSourceDrvs;
+  sourceImports = mapAttrs (refName: importSubdir: importSubdir "") relSourceImports;
 
   c2nResultsWith = runCabal2Nix: rec {
-    relSourceDrvs =
+    relSourceImports =
       mapAttrs
         (refName: srcPath:
           (resultNamePrefix: subDir:
@@ -78,9 +78,9 @@ in rec {
         )
         sources;
 
-    sourceDrvs = mapAttrs (refName: subdirDrv: subdirDrv refName "") relSourceDrvs;
+    sourceImports = mapAttrs (refName: importSubdir: importSubdir refName "") relSourceImports;
 
-    hackageDrvs =
+    hackageImports =
       let
         hackageRefs =
           compose
@@ -94,9 +94,9 @@ in rec {
             )
             (filterAttrs (refName: ref: ref.scheme == "hackage"))
             refs;
-        drvsPath =
+        nixsPath =
           runCabal2Nix.forHackagePackages "hackageRefs" (builtins.attrValues hackageRefs);
       in
-        mapAttrs (refName: ref: import "${drvsPath}/${ref.packageId}") hackageRefs;
+        mapAttrs (refName: ref: import "${nixsPath}/${ref.packageId}") hackageRefs;
   };
 }
