@@ -384,9 +384,7 @@ writeGithubRef() {
   local repo="$2"
   local rev="$3"
 
-  nixPrefetchScripts="$(nix-build --no-out-link -E '(import <nixpkgs> {}).nix-prefetch-scripts')"
-
-  local sha256="$($nixPrefetchScripts/bin/nix-prefetch-zip --hash-type sha256 "$(buildGithubUrl "$owner" "$repo")/archive/$rev.tar.gz")"
+  local sha256="$(nix-prefetch-url --type sha256 --unpack "$(buildGithubUrl "$owner" "$repo")/archive/$rev.tar.gz")"
 
   [ -z $sha256 ] && error "Failed to obtain a hash for commit $rev from GitHub."
 
