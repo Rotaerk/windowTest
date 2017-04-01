@@ -1,6 +1,0 @@
-{
-  scheme = "hackage";
-  name = "ghcjs-dom";
-  version = "0.2.3.1";
-  sha256 = "0fgfmhzlz960vvm2l8a441yv9nv95h6wz32815x71mbaskff7pnz";
-}

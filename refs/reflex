@@ -1,7 +1,0 @@
-{
-  scheme = "github";
-  owner = "reflex-frp";
-  repo = "reflex";
-  rev = "91299fce0bb2caddfba35af6608df57dd31e3690";
-  sha256 = "02x21f0nbydmd5rj73zsjqzn8k55m7j28jl0zwwznyf11lrpsv4j";
-}

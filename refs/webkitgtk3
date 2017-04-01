@@ -1,7 +1,0 @@
-{
-  scheme = "github";
-  owner = "ryantrinkle";
-  repo = "webkit";
-  rev = "be8046844e8108f88407a2e5548d0c19911cb012";
-  sha256 = "1wdkl55m4l9crkbsw8azl4jwqd8rjjkzlrvj8pmb9b48jxcpq7ml";
-}

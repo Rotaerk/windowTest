@@ -1,7 +1,0 @@
-{
-  scheme = "github";
-  owner = "NixOS";
-  repo = "nixpkgs-channels";
-  rev = "497e6d2f1d149f5fbe004e15fe8c384eed993943";
-  sha256 = "1mh1pmgfi6xrfhx3c7r47iip06w66r9xzqwda79z73hmgq5zbvhx";
-}
